@@ -59,6 +59,8 @@ class _HomePageState extends State<HomePage> {
         
         if (e.code == "PERMISSION_DENIED") {
           errorMessage = "Permission denied. Please grant notification policy access in settings.";
+        } else if (e.code == "AUDIO_PERMISSION_DENIED") {
+          errorMessage = "Audio permission required. Please grant 'Modify Audio Settings' permission for volume control.";
         } else if (e.code == "SERVICE_ERROR") {
           errorMessage = "Service error: ${e.message}";
         }
@@ -209,8 +211,9 @@ class _HomePageState extends State<HomePage> {
                       const SizedBox(height: 8),
                       const Text('1. Put your device in Do Not Disturb mode'),
                       const Text('2. Set volume to minimum'),
-                      const Text('3. Press the button above'),
-                      const Text('4. Alert should play at max volume and show full-screen notification'),
+                      const Text('3. Grant "Modify Audio Settings" permission when prompted'),
+                      const Text('4. Press the button above'),
+                      const Text('5. Alert should play at max volume and show full-screen notification'),
                     ],
                   ),
                 ),

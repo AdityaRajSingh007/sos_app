@@ -23,15 +23,42 @@ class CriticalAlertService : Service() {
 
     private fun startCriticalAlert() {
         try {
-            // Maximize alarm volume
+            // Maximize alarm volume with multiple approaches
             val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-            val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
-            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
+            
+            // Approach 1: Set alarm stream volume (primary method)
+            val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+            audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarmVolume, 0)
+            
+            // Approach 2: Also try to set media volume (backup method)
+            val maxMediaVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxMediaVolume, 0)
+            
+            // Approach 3: Set system volume as well (for older devices)
+            val maxSystemVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_SYSTEM)
+            audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, maxSystemVolume, 0)
 
-            // Play alarm sound
-            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
-            mediaPlayer?.isLooping = true
-            mediaPlayer?.start()
+            // Play alarm sound with maximum volume
+            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound).apply {
+                setAudioStreamType(AudioManager.STREAM_ALARM)
+                setVolume(1.0f, 1.0f) // Set MediaPlayer volume to maximum
+                isLooping = true
+                start()
+            }
+            
+            // Additional approach: Try to set volume again after MediaPlayer starts
+            // This sometimes works better on newer Android versions
+            Handler(Looper.getMainLooper()).postDelayed({
+                try {
+                    val currentAlarmVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
+                    val maxAlarmVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                    if (currentAlarmVolume < maxAlarmVolume) {
+                        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxAlarmVolume, 0)
+                    }
+                } catch (e: Exception) {
+                    // Ignore if this fails
+                }
+            }, 100)
 
             // Create the full-screen intent
             val fullScreenIntent = Intent(this, MainActivity::class.java).apply {
