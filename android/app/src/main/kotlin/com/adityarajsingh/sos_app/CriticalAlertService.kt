@@ -39,11 +39,50 @@ class CriticalAlertService : Service() {
             audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, maxSystemVolume, 0)
 
             // Play alarm sound with maximum volume
-            mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound).apply {
-                setAudioStreamType(AudioManager.STREAM_ALARM)
-                setVolume(1.0f, 1.0f) // Set MediaPlayer volume to maximum
-                isLooping = true
-                start()
+            try {
+                mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
+                if (mediaPlayer != null) {
+                    mediaPlayer?.apply {
+                        setAudioStreamType(AudioManager.STREAM_ALARM)
+                        setVolume(1.0f, 1.0f) // Set MediaPlayer volume to maximum
+                        isLooping = true
+                        
+                        // Add error listener for debugging
+                        setOnErrorListener { _, what, extra ->
+                            android.util.Log.e("CriticalAlert", "MediaPlayer error: what=$what, extra=$extra")
+                            false
+                        }
+                        
+                        setOnPreparedListener {
+                            android.util.Log.d("CriticalAlert", "MediaPlayer prepared successfully")
+                        }
+                        
+                        start()
+                        android.util.Log.d("CriticalAlert", "MediaPlayer started")
+                    }
+                } else {
+                    android.util.Log.e("CriticalAlert", "Failed to create MediaPlayer - file not found or corrupted")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("CriticalAlert", "Error creating MediaPlayer: ${e.message}")
+                
+                // Fallback: Try with different audio stream type
+                try {
+                    mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
+                    mediaPlayer?.apply {
+                        setAudioStreamType(AudioManager.STREAM_MUSIC) // Try media stream instead
+                        setVolume(1.0f, 1.0f)
+                        isLooping = true
+                        setOnErrorListener { _, what, extra ->
+                            android.util.Log.e("CriticalAlert", "Fallback MediaPlayer error: what=$what, extra=$extra")
+                            false
+                        }
+                        start()
+                        android.util.Log.d("CriticalAlert", "Fallback MediaPlayer started with STREAM_MUSIC")
+                    }
+                } catch (fallbackException: Exception) {
+                    android.util.Log.e("CriticalAlert", "Fallback MediaPlayer also failed: ${fallbackException.message}")
+                }
             }
             
             // Additional approach: Try to set volume again after MediaPlayer starts
