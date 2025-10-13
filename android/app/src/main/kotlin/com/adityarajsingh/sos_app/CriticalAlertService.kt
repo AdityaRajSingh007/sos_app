@@ -3,6 +3,7 @@ package com.adityarajsingh.sos_app
 import android.app.*
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
@@ -38,50 +39,64 @@ class CriticalAlertService : Service() {
             val maxSystemVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_SYSTEM)
             audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, maxSystemVolume, 0)
 
-            // Play alarm sound with maximum volume
+            // Play alarm sound with maximum volume using AudioAttributes + explicit prepare
             try {
-                mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
-                if (mediaPlayer != null) {
-                    mediaPlayer?.apply {
-                        setAudioStreamType(AudioManager.STREAM_ALARM)
-                        setVolume(1.0f, 1.0f) // Set MediaPlayer volume to maximum
-                        isLooping = true
-                        
-                        // Add error listener for debugging
-                        setOnErrorListener { _, what, extra ->
-                            android.util.Log.e("CriticalAlert", "MediaPlayer error: what=$what, extra=$extra")
-                            false
-                        }
-                        
-                        setOnPreparedListener {
-                            android.util.Log.d("CriticalAlert", "MediaPlayer prepared successfully")
-                        }
-                        
-                        start()
+                val afd = resources.openRawResourceFd(R.raw.alarm_sound)
+                if (afd == null) {
+                    android.util.Log.e("CriticalAlert", "Failed to open raw resource")
+                } else {
+                    mediaPlayer = MediaPlayer()
+                    val attrs = AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .build()
+                    mediaPlayer?.setAudioAttributes(attrs)
+                    mediaPlayer?.isLooping = true
+                    mediaPlayer?.setVolume(1.0f, 1.0f)
+
+                    mediaPlayer?.setOnErrorListener { _, what, extra ->
+                        android.util.Log.e("CriticalAlert", "MediaPlayer error: what=$what, extra=$extra")
+                        false
+                    }
+                    mediaPlayer?.setOnPreparedListener {
+                        android.util.Log.d("CriticalAlert", "MediaPlayer prepared successfully")
+                        mediaPlayer?.start()
                         android.util.Log.d("CriticalAlert", "MediaPlayer started")
                     }
-                } else {
-                    android.util.Log.e("CriticalAlert", "Failed to create MediaPlayer - file not found or corrupted")
+
+                    mediaPlayer?.setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                    afd.close()
+                    mediaPlayer?.prepareAsync()
                 }
             } catch (e: Exception) {
-                android.util.Log.e("CriticalAlert", "Error creating MediaPlayer: ${e.message}")
-                
-                // Fallback: Try with different audio stream type
+                android.util.Log.e("CriticalAlert", "Error creating/starting MediaPlayer (ALARM): ${e.message}")
+                // Fallback to USAGE_MEDIA if ALARM fails on certain devices
                 try {
-                    mediaPlayer = MediaPlayer.create(this, R.raw.alarm_sound)
-                    mediaPlayer?.apply {
-                        setAudioStreamType(AudioManager.STREAM_MUSIC) // Try media stream instead
-                        setVolume(1.0f, 1.0f)
-                        isLooping = true
-                        setOnErrorListener { _, what, extra ->
-                            android.util.Log.e("CriticalAlert", "Fallback MediaPlayer error: what=$what, extra=$extra")
+                    val afd2 = resources.openRawResourceFd(R.raw.alarm_sound)
+                    if (afd2 != null) {
+                        mediaPlayer = MediaPlayer()
+                        val attrs2 = AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
+                            .build()
+                        mediaPlayer?.setAudioAttributes(attrs2)
+                        mediaPlayer?.isLooping = true
+                        mediaPlayer?.setVolume(1.0f, 1.0f)
+                        mediaPlayer?.setOnErrorListener { _, what, extra ->
+                            android.util.Log.e("CriticalAlert", "MediaPlayer fallback error: what=$what, extra=$extra")
                             false
                         }
-                        start()
-                        android.util.Log.d("CriticalAlert", "Fallback MediaPlayer started with STREAM_MUSIC")
+                        mediaPlayer?.setOnPreparedListener {
+                            android.util.Log.d("CriticalAlert", "MediaPlayer prepared (fallback)")
+                            mediaPlayer?.start()
+                            android.util.Log.d("CriticalAlert", "MediaPlayer started (fallback)")
+                        }
+                        mediaPlayer?.setDataSource(afd2.fileDescriptor, afd2.startOffset, afd2.length)
+                        afd2.close()
+                        mediaPlayer?.prepareAsync()
                     }
-                } catch (fallbackException: Exception) {
-                    android.util.Log.e("CriticalAlert", "Fallback MediaPlayer also failed: ${fallbackException.message}")
+                } catch (e2: Exception) {
+                    android.util.Log.e("CriticalAlert", "Fallback prepare failed: ${e2.message}")
                 }
             }
             
