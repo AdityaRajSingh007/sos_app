@@ -2,7 +2,7 @@
 
 **To the Developer:**
 
-The following document details the requirements for Prototype 2 of our emergency alert application. We have successfully completed a Proof of Concept (PoC) for the critical alert mechanism. The goal of this prototype is to build the foundational backend, user data model, and the user-facing registration/login flow.
+The following document details the requirements for Prototype 2 of our emergency alert application.We have successfully completed a Proof of Concept (PoC) for the critical alert mechanism. The goal of this prototype is to build the foundational backend, user data model, and the user-facing registration/login flow.
 
 This prototype will connect our Flutter application to a live Firebase backend, allowing users to create accounts and have their data stored securely and reliably.
 
