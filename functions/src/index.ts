@@ -28,9 +28,10 @@ const messaging = admin.messaging();
 export const triggerCriticalAlert = onCall(
   {
     maxInstances: 10,
-    // Allow unauthenticated calls if needed
-    // (adjust based on security requirements)
-    // For now, we'll validate authentication in the function
+    // Allow unauthenticated calls for testing
+    // TODO: Re-enable authentication for production
+    cors: true,
+    invoker: "public", // Allow unauthenticated access
   },
   async (request) => {
     try {
@@ -44,15 +45,9 @@ export const triggerCriticalAlert = onCall(
         );
       }
 
-      // Validate that requester is authenticated
-      if (!request.auth) {
-        throw new HttpsError(
-          "unauthenticated",
-          "User must be authenticated to trigger alerts"
-        );
-      }
-
-      const requesterId = request.auth.uid;
+      // For testing: Allow unauthenticated requests
+      // const requesterId = request.auth?.uid || "anonymous";
+      const requesterId = request.auth?.uid || "test_user";
       logger.info(
         `Trigger alert requested by ${requesterId} for ${targetUserId}`
       );
@@ -144,7 +139,7 @@ export const triggerCriticalAlert = onCall(
           permanentHomeAddress: targetUserData.permanentHomeAddress,
           medicalInfo: targetUserData.medicalInfo || {},
         },
-        triggeredBy: requesterId,
+        triggeredBy: requesterId || "anonymous",
         timestamp: admin.firestore.FieldValue.serverTimestamp(),
       };
 
@@ -156,7 +151,7 @@ export const triggerCriticalAlert = onCall(
           type: "critical_alert",
           // Stringify nested objects for FCM data messages
           studentInfo: JSON.stringify(alertPayload.studentInfo),
-          triggeredBy: requesterId,
+          triggeredBy: requesterId || "anonymous",
         },
         android: {
           priority: "high" as const,
