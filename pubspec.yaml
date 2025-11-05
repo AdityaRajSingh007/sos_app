@@ -38,11 +38,12 @@ dependencies:
   flutter_riverpod: ^2.5.1
   # Routing
   go_router: ^14.2.7
-  # Firebase core/auth/firestore/messaging
+  # Firebase core/auth/firestore/messaging/functions
   firebase_core: ^3.6.0
   firebase_auth: ^5.3.1
   cloud_firestore: ^5.4.4
   firebase_messaging: ^15.1.3
+  cloud_functions: ^5.1.3
 
 dev_dependencies:
   flutter_test:

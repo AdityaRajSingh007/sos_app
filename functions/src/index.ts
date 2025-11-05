@@ -7,26 +7,190 @@
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 
-import {setGlobalOptions} from "firebase-functions";
-import {onRequest} from "firebase-functions/https";
+import * as admin from "firebase-admin";
+import {onCall, HttpsError} from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
 
-// Start writing functions
-// https://firebase.google.com/docs/functions/typescript
+// Initialize Firebase Admin
+admin.initializeApp();
 
-// For cost control, you can set the maximum number of containers that can be
-// running at the same time. This helps mitigate the impact of unexpected
-// traffic spikes by instead downgrading performance. This limit is a
-// per-function limit. You can override the limit for each function using the
-// `maxInstances` option in the function's options, e.g.
-// `onRequest({ maxInstances: 5 }, (req, res) => { ... })`.
-// NOTE: setGlobalOptions does not apply to functions using the v1 API. V1
-// functions should each use functions.runWith({ maxInstances: 10 }) instead.
-// In the v1 API, each function can only serve one request per container, so
-// this will be the maximum concurrent request count.
-setGlobalOptions({ maxInstances: 10 });
+// Get Firestore and Messaging instances
+const db = admin.firestore();
+const messaging = admin.messaging();
 
-// export const helloWorld = onRequest((request, response) => {
-//   logger.info("Hello logs!", {structuredData: true});
-//   response.send("Hello from Firebase!");
-// });
+/**
+ * HTTP Callable Function to trigger a critical alert for a student
+ * 
+ * @param data - Must contain {targetUserId: string}
+ * @param context - Firebase Auth context (automatically provided)
+ * @returns Success message with alert ID
+ */
+export const triggerCriticalAlert = onCall(
+  {
+    maxInstances: 10,
+    // Allow unauthenticated calls if needed (adjust based on security requirements)
+    // For now, we'll validate authentication in the function
+  },
+  async (request) => {
+    try {
+      const {targetUserId} = request.data;
+
+      // Validate input
+      if (!targetUserId || typeof targetUserId !== "string") {
+        throw new HttpsError(
+          "invalid-argument",
+          "targetUserId is required and must be a string"
+        );
+      }
+
+      // Validate that requester is authenticated
+      if (!request.auth) {
+        throw new HttpsError(
+          "unauthenticated",
+          "User must be authenticated to trigger alerts"
+        );
+      }
+
+      const requesterId = request.auth.uid;
+      logger.info(`Trigger alert requested by ${requesterId} for ${targetUserId}`);
+
+      // Generate unique alert ID
+      const alertId = db.collection("_").doc().id; // Generate a unique ID
+
+      // Fetch target user document
+      const targetUserDoc = await db.collection("users").doc(targetUserId).get();
+
+      if (!targetUserDoc.exists) {
+        throw new HttpsError("not-found", "Target user not found");
+      }
+
+      const targetUserData = targetUserDoc.data();
+      if (!targetUserData) {
+        throw new HttpsError("not-found", "Target user data not found");
+      }
+
+      // Get assigned responders
+      const assignedResponders = targetUserData.assignedResponders || [];
+
+      if (!Array.isArray(assignedResponders) || assignedResponders.length === 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Target user has no assigned responders"
+        );
+      }
+
+      logger.info(
+        `Found ${assignedResponders.length} assigned responders for user ${targetUserId}`
+      );
+
+      // Fetch FCM tokens for all assigned responders
+      const responderTokens: string[] = [];
+      const responderPromises = assignedResponders.map(async (responderId: string) => {
+        try {
+          const responderDoc = await db.collection("users").doc(responderId).get();
+          if (responderDoc.exists) {
+            const responderData = responderDoc.data();
+            if (responderData && responderData.fcmToken) {
+              responderTokens.push(responderData.fcmToken);
+            }
+          }
+        } catch (error) {
+          logger.error(`Error fetching responder ${responderId}:`, error);
+        }
+      });
+
+      await Promise.all(responderPromises);
+
+      if (responderTokens.length === 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "No valid FCM tokens found for assigned responders"
+        );
+      }
+
+      logger.info(`Sending alerts to ${responderTokens.length} devices`);
+
+      // Prepare student information payload
+      const alertPayload = {
+        alertId,
+        type: "critical_alert",
+        studentInfo: {
+          uid: targetUserData.uid,
+          fullName: targetUserData.fullName,
+          email: targetUserData.email,
+          contact: targetUserData.contact,
+          guardianContact: targetUserData.guardianContact,
+          enrollmentNumber: targetUserData.enrollmentNumber,
+          accommodationType: targetUserData.accommodationType,
+          hostelWingAndRoom: targetUserData.hostelWingAndRoom || null,
+          permanentHomeAddress: targetUserData.permanentHomeAddress,
+          medicalInfo: targetUserData.medicalInfo || {},
+        },
+        triggeredBy: requesterId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      // Send FCM messages to all responders
+      const message: admin.messaging.MulticastMessage = {
+        tokens: responderTokens,
+        data: {
+          alertId,
+          type: "critical_alert",
+          // Stringify nested objects for FCM data messages
+          studentInfo: JSON.stringify(alertPayload.studentInfo),
+          triggeredBy: requesterId,
+        },
+        android: {
+          priority: "high" as const,
+        },
+        apns: {
+          headers: {
+            "apns-priority": "10",
+          },
+          payload: {
+            aps: {
+              sound: "default",
+              contentAvailable: true,
+            },
+          },
+        },
+      };
+
+      const response = await messaging.sendEachForMulticast(message);
+
+      logger.info(
+        `Successfully sent ${response.successCount} alerts, ` +
+        `${response.failureCount} failed`
+      );
+
+      // Log failures if any
+      if (response.failureCount > 0) {
+        response.responses.forEach((resp, idx) => {
+          if (!resp.success) {
+            logger.error(
+              `Failed to send to token ${responderTokens[idx]}:`,
+              resp.error
+            );
+          }
+        });
+      }
+
+      return {
+        success: true,
+        alertId,
+        message: `Alert triggered successfully. Sent to ${response.successCount} device(s).`,
+        sentCount: response.successCount,
+        failedCount: response.failureCount,
+      };
+    } catch (error) {
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      logger.error("Error in triggerCriticalAlert:", error);
+      throw new HttpsError(
+        "internal",
+        "An error occurred while triggering the alert"
+      );
+    }
+  }
+);
