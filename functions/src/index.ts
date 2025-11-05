@@ -20,7 +20,7 @@ const messaging = admin.messaging();
 
 /**
  * HTTP Callable Function to trigger a critical alert for a student
- * 
+ *
  * @param data - Must contain {targetUserId: string}
  * @param context - Firebase Auth context (automatically provided)
  * @returns Success message with alert ID
@@ -28,7 +28,8 @@ const messaging = admin.messaging();
 export const triggerCriticalAlert = onCall(
   {
     maxInstances: 10,
-    // Allow unauthenticated calls if needed (adjust based on security requirements)
+    // Allow unauthenticated calls if needed
+    // (adjust based on security requirements)
     // For now, we'll validate authentication in the function
   },
   async (request) => {
@@ -52,13 +53,18 @@ export const triggerCriticalAlert = onCall(
       }
 
       const requesterId = request.auth.uid;
-      logger.info(`Trigger alert requested by ${requesterId} for ${targetUserId}`);
+      logger.info(
+        `Trigger alert requested by ${requesterId} for ${targetUserId}`
+      );
 
       // Generate unique alert ID
       const alertId = db.collection("_").doc().id; // Generate a unique ID
 
       // Fetch target user document
-      const targetUserDoc = await db.collection("users").doc(targetUserId).get();
+      const targetUserDoc = await db
+        .collection("users")
+        .doc(targetUserId)
+        .get();
 
       if (!targetUserDoc.exists) {
         throw new HttpsError("not-found", "Target user not found");
@@ -72,7 +78,10 @@ export const triggerCriticalAlert = onCall(
       // Get assigned responders
       const assignedResponders = targetUserData.assignedResponders || [];
 
-      if (!Array.isArray(assignedResponders) || assignedResponders.length === 0) {
+      if (
+        !Array.isArray(assignedResponders) ||
+        assignedResponders.length === 0
+      ) {
         throw new HttpsError(
           "failed-precondition",
           "Target user has no assigned responders"
@@ -80,24 +89,33 @@ export const triggerCriticalAlert = onCall(
       }
 
       logger.info(
-        `Found ${assignedResponders.length} assigned responders for user ${targetUserId}`
+        `Found ${assignedResponders.length} assigned responders ` +
+        `for user ${targetUserId}`
       );
 
       // Fetch FCM tokens for all assigned responders
       const responderTokens: string[] = [];
-      const responderPromises = assignedResponders.map(async (responderId: string) => {
-        try {
-          const responderDoc = await db.collection("users").doc(responderId).get();
-          if (responderDoc.exists) {
-            const responderData = responderDoc.data();
-            if (responderData && responderData.fcmToken) {
-              responderTokens.push(responderData.fcmToken);
+      const responderPromises = assignedResponders.map(
+        async (responderId: string) => {
+          try {
+            const responderDoc = await db
+              .collection("users")
+              .doc(responderId)
+              .get();
+            if (responderDoc.exists) {
+              const responderData = responderDoc.data();
+              if (responderData && responderData.fcmToken) {
+                responderTokens.push(responderData.fcmToken);
+              }
             }
+          } catch (error) {
+            logger.error(
+              `Error fetching responder ${responderId}:`,
+              error
+            );
           }
-        } catch (error) {
-          logger.error(`Error fetching responder ${responderId}:`, error);
         }
-      });
+      );
 
       await Promise.all(responderPromises);
 
@@ -178,7 +196,8 @@ export const triggerCriticalAlert = onCall(
       return {
         success: true,
         alertId,
-        message: `Alert triggered successfully. Sent to ${response.successCount} device(s).`,
+        message: "Alert triggered successfully. " +
+          `Sent to ${response.successCount} device(s).`,
         sentCount: response.successCount,
         failedCount: response.failureCount,
       };
